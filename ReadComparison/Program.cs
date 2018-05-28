@@ -11,52 +11,64 @@ namespace _ReadComparison {
 
     internal class Program {
         private static DateTime readStart = new DateTime(2017, 1, 1);
-        private static int[] daysToReadList = { 1, 7, 30, 90, 120 };
+        private static int[] daysToReadList = { 180, 180, 180 };
         private static Func<String> tagNameSupplier = () => "testSinusoid_" + new Random().Next(0, 6000);
 
         private static void Main(string[] args) {
-            readData("pi2015", "pi2016", "pi2017");
+            readData(true, "pi2015", "pi2016", "pi2017", "pi2018");
 
             Console.Error.Write("\n\nPress any key to exit");
             Console.ReadKey();
         }
 
-        private static void readData(params String[] serverNames) {
+        private static void readData(bool reuseConnection, params String[] serverNames) {
+            if (reuseConnection) {
+                Console.WriteLine("Reusing the connection between tests on the same server\n");
+            } else {
+                Console.WriteLine("All tests are in their own connection\n");
+            }
+
             foreach (String serverName in serverNames) {
-                foreach (int daysToRead in daysToReadList) {
-                    readData(serverName, tagNameSupplier.Invoke(), daysToRead);
+                if (reuseConnection) {
+                    readData(serverName, tagNameSupplier, daysToReadList);
+                } else {
+                    foreach (int daysToRead in daysToReadList) {
+                        readData(serverName, tagNameSupplier, new int[] { daysToRead });
+                    }
                 }
 
                 Console.WriteLine("");
             }
         }
 
-        private static void readData(String serverName, String tagName, int daysToRead) {
-            Console.Write("[{0} {1}d] ", serverName, daysToRead);
-
+        private static void readData(String serverName, Func<String> tagNameSupplier, int[] daysToReadList) {
             PIServer server = new PIServers()
                 .Where(s => s.Name.Contains(serverName))
                 .First();
             server.Connect();
 
-            Stopwatch roundTripStopwatch = Stopwatch.StartNew();
-            PIPoint tag = PIPoint.FindPIPoint(server, tagName);
-            roundTripStopwatch.Stop();
+            foreach (int daysToRead in daysToReadList) {
+                Console.Write("[{0} {1}d] ", serverName, daysToRead);
 
-            AFTimeRange timeRange = new AFTimeRange(new AFTime(readStart), new AFTime(readStart.Add(new TimeSpan(daysToRead, 0, 0, 0))));
+                Stopwatch roundTripStopwatch = Stopwatch.StartNew();
+                PIPoint tag = PIPoint.FindPIPoint(server, tagNameSupplier.Invoke());
+                roundTripStopwatch.Stop();
 
-            try {
-                Stopwatch readStopwatch = Stopwatch.StartNew();
-                AFValues values = tag.RecordedValues(timeRange, AFBoundaryType.Outside, "", true, 0);
-                readStopwatch.Stop();
+                AFTimeRange timeRange = new AFTimeRange(new AFTime(readStart), new AFTime(readStart.Add(new TimeSpan(daysToRead, 0, 0, 0))));
 
-                Console.WriteLine("Read {0:n0} samples in {1:0.000}s (1m samples in {2:0.000}s) EstimatedRoundTripTime: {3}ms",
-                    values.Count,
-                    readStopwatch.ElapsedMilliseconds / 1000.0,
-                    ((double)readStopwatch.ElapsedMilliseconds) / values.Count * 1000.0,
-                    roundTripStopwatch.ElapsedMilliseconds);
-            } catch (Exception e) {
-                Console.WriteLine("Exception: {0}", e.ToString());
+                try {
+                    Stopwatch readStopwatch = Stopwatch.StartNew();
+                    AFValues values = tag.RecordedValues(timeRange, AFBoundaryType.Outside, "", true, 0);
+                    readStopwatch.Stop();
+
+                    Console.WriteLine("Read {0:n0} samples in {1:0.000}s (1m samples in {2:0.000}s) EstimatedRoundTripTime: {3}ms",
+                        values.Count,
+                        readStopwatch.ElapsedMilliseconds / 1000.0,
+                        ((double)readStopwatch.ElapsedMilliseconds) / values.Count * 1000.0,
+                        roundTripStopwatch.ElapsedMilliseconds);
+                } catch (Exception e) {
+                    Console.WriteLine("Exception: {0}", e.ToString());
+                }
             }
 
             server.Disconnect();
